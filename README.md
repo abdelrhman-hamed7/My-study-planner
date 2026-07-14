@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # group_5
 
 My study Planner project.
@@ -13,3 +14,6 @@ My study Planner project.
 This project is a starting point for a Flutter application.
 
 ## Phase 1 and Phase 2
+=======
+# My-study-planner
+>>>>>>> 4d14a2a9acc5cb0ad96a4d28294c7d241e974847
