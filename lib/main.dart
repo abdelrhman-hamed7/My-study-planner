@@ -133,6 +133,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _openAddGoalScreen() async {
+    final Map<String, dynamic>? newGoal =
+        await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) {
+          return const AddGoalScreen();
+        },
+      ),
+    );
+
+    if (newGoal == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _goals.add(newGoal);
+    });
+
+    final String subject = newGoal['subject'] as String;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$subject was added successfully.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _confirmDelete(int index) async {
     final String subject = _goals[index]['subject'] as String;
 
@@ -307,7 +338,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return Icons.calculate;
     }
 
-    if (name.contains('flutter') || name.contains('programming')) {
+    if (name.contains('mobile') ||
+        name.contains('flutter') ||
+        name.contains('programming')) {
       return Icons.phone_android;
     }
 
@@ -317,6 +350,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (name.contains('network')) {
       return Icons.router;
+    }
+
+    if (name.contains('web')) {
+      return Icons.language;
     }
 
     return Icons.menu_book;
@@ -329,7 +366,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return Colors.blue;
     }
 
-    if (name.contains('flutter') || name.contains('programming')) {
+    if (name.contains('mobile') ||
+        name.contains('flutter') ||
+        name.contains('programming')) {
       return Colors.teal;
     }
 
@@ -339,6 +378,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (name.contains('network')) {
       return Colors.purple;
+    }
+
+    if (name.contains('web')) {
+      return Colors.blue;
     }
 
     return Colors.indigo;
@@ -546,13 +589,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.indigo.withOpacity(0.20),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
             ),
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -610,9 +646,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed:
                     _completedGoals > 0 ? _clearCompletedGoals : null,
                 tooltip: 'Clear Completed Goals',
-                icon: const Icon(
-                  Icons.cleaning_services,
-                ),
+                icon: const Icon(Icons.cleaning_services),
               ),
             ],
           ),
@@ -809,17 +843,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Adding new goals will be available soon',
-              ),
-            ),
-          );
-        },
+        onPressed: _openAddGoalScreen,
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         tooltip: 'Add Goal',
@@ -855,6 +879,208 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class AddGoalScreen extends StatefulWidget {
+  const AddGoalScreen({super.key});
+
+  @override
+  State<AddGoalScreen> createState() {
+    return _AddGoalScreenState();
+  }
+}
+
+class _AddGoalScreenState extends State<AddGoalScreen> {
+  final TextEditingController _subjectController =
+      TextEditingController();
+
+  final TextEditingController _hoursController =
+      TextEditingController();
+
+  String? _subjectError;
+  String? _hoursError;
+
+  void _saveGoal() {
+    final String subject = _subjectController.text.trim();
+    final String hoursText = _hoursController.text.trim();
+    final int? hours = int.tryParse(hoursText);
+
+    String? subjectError;
+    String? hoursError;
+
+    if (subject.isEmpty) {
+      subjectError = 'Please enter a subject name.';
+    }
+
+    if (hoursText.isEmpty) {
+      hoursError = 'Please enter the number of hours.';
+    } else if (hours == null) {
+      hoursError = 'Hours must be a valid number.';
+    } else if (hours <= 0) {
+      hoursError = 'Hours must be greater than zero.';
+    }
+
+    setState(() {
+      _subjectError = subjectError;
+      _hoursError = hoursError;
+    });
+
+    if (subjectError != null || hoursError != null) {
+      return;
+    }
+
+    final Map<String, dynamic> newGoal = {
+      'subject': subject,
+      'hours': hours!,
+      'done': false,
+    };
+
+    Navigator.pop(context, newGoal);
+  }
+
+  @override
+  void dispose() {
+    _subjectController.dispose();
+    _hoursController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        title: const Text(
+          'Add Study Goal',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.indigo.shade800,
+                    Colors.indigo.shade500,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Column(
+                children: [
+                  CircleAvatar(
+                    radius: 34,
+                    backgroundColor: Colors.white,
+                    child: Icon(
+                      Icons.add_task,
+                      size: 38,
+                      color: Colors.indigo,
+                    ),
+                  ),
+                  SizedBox(height: 14),
+                  Text(
+                    'Create a New Goal',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 23,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Enter the subject and your planned study time.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            TextField(
+              controller: _subjectController,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Subject name',
+                hintText: 'Example: Mobile Programming',
+                prefixIcon: const Icon(Icons.menu_book),
+                errorText: _subjectError,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onChanged: (_) {
+                if (_subjectError != null) {
+                  setState(() {
+                    _subjectError = null;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _hoursController,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Number of hours',
+                hintText: 'Example: 3',
+                prefixIcon: const Icon(Icons.schedule),
+                errorText: _hoursError,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onChanged: (_) {
+                if (_hoursError != null) {
+                  setState(() {
+                    _hoursError = null;
+                  });
+                }
+              },
+              onSubmitted: (_) {
+                _saveGoal();
+              },
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: _saveGoal,
+                icon: const Icon(Icons.save),
+                label: const Text(
+                  'Save Goal',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
