@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-// STATIC: The application starts from the main function.
+import 'database_helper.dart';
+
+// STATIC: The Flutter application starts here.
 void main() {
   runApp(const MyApp());
 }
 
-// STATIC: MyApp contains application-level settings that do not change.
+// STATIC: Contains application-level settings.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -23,7 +27,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// LOGIC: HomeScreen is stateful because goals and filters can change.
+// LOGIC: HomeScreen changes when database data, filters, or time changes.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -34,48 +38,121 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // LOGIC: This list is the main source of goal data.
-  final List<Map<String, dynamic>> _goals = [
-    {
-      'subject': 'Web Technology',
-      'hours': 3,
-      'done': false,
-    },
-    {
-      'subject': 'Advanced Mobile Application',
-      'hours': 5,
-      'done': true,
-    },
-    {
-      'subject': 'Database Programming',
-      'hours': 3,
-      'done': false,
-    },
-  ];
+  // LOGIC: Goals are loaded from SQLite, not from a hardcoded list.
+  final List<Map<String, dynamic>> _goals = [];
 
-  // LOGIC: Stores the currently selected filter.
+  // LOGIC: One shared database helper.
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+
+  // LOGIC: Stores the selected filter.
   String _selectedFilter = 'All';
 
-  // LOGIC: fold() adds the hours of every goal.
+  // LOGIC: Controls the initial loading state.
+  bool _isLoading = true;
+
+  // LOGIC: Stores an error message if database loading fails.
+  String? _databaseError;
+
+  // LOGIC: Refreshes time-based information.
+  Timer? _timeTimer;
+
+  // STATIC: Study tips used by the hourly tip logic.
+  final List<String> _studyTips = [
+    'Study for 25 minutes, then take a short 5-minute break.',
+    'Start with the most difficult subject while your mind is fresh.',
+    'Review your notes briefly after every study session.',
+    'Break large topics into smaller and manageable tasks.',
+    'Keep your phone away while studying to avoid distractions.',
+    'Use active recall instead of only reading your notes.',
+    'Create a checklist and mark each completed study task.',
+    'Revise difficult topics more than once during the week.',
+    'Explain a topic to someone else to test your understanding.',
+    'Take short breaks to improve focus and avoid mental fatigue.',
+    'Set one clear goal before starting every study session.',
+    'Practice questions after studying to check your understanding.',
+  ];
+
+  // LOGIC: Starts the timer and loads saved goals from SQLite.
+  @override
+  void initState() {
+    super.initState();
+
+    _timeTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (Timer timer) {
+        if (mounted) {
+          setState(() {});
+        }
+      },
+    );
+
+    _loadGoals();
+  }
+
+  // LOGIC: Stops the timer when the screen is removed.
+  @override
+  void dispose() {
+    _timeTimer?.cancel();
+    super.dispose();
+  }
+
+  // LOGIC: SELECT — loads all saved goals into _goals.
+  Future<void> _loadGoals() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _databaseError = null;
+      });
+    }
+
+    try {
+      final List<Map<String, dynamic>> savedGoals =
+          await _databaseHelper.getAllGoals();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _goals
+          ..clear()
+          ..addAll(savedGoals);
+
+        _isLoading = false;
+        _databaseError = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _databaseError = 'Could not load goals from the database.';
+      });
+    }
+  }
+
+  // LOGIC: fold() calculates total planned study hours.
   int get _totalHours {
     return _goals.fold<int>(
       0,
-      (total, goal) {
+      (int total, Map<String, dynamic> goal) {
         return total + (goal['hours'] as int);
       },
     );
   }
 
-  // LOGIC: where() keeps completed goals, then length counts them.
+  // LOGIC: where() selects completed goals and length counts them.
   int get _completedGoals {
     return _goals.where(
-      (goal) {
+      (Map<String, dynamic> goal) {
         return goal['done'] as bool;
       },
     ).length;
   }
 
-  // LOGIC: Calculates progress as a value between 0 and 1.
+  // LOGIC: Calculates progress between 0 and 1.
   double get _progress {
     if (_goals.isEmpty) {
       return 0;
@@ -84,12 +161,111 @@ class _HomeScreenState extends State<HomeScreen> {
     return _completedGoals / _goals.length;
   }
 
-  // LOGIC: Converts decimal progress into a percentage.
+  // LOGIC: Converts progress into a percentage.
   int get _progressPercentage {
     return (_progress * 100).round();
   }
 
-  // LOGIC: Returns original indexes of goals matching the filter.
+  // LOGIC: Returns a greeting based on the current hour.
+  String get _greetingMessage {
+    final int hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return 'Good Morning!';
+    } else if (hour < 17) {
+      return 'Good Afternoon!';
+    } else {
+      return 'Good Evening!';
+    }
+  }
+
+  // LOGIC: Returns a greeting subtitle based on the current hour.
+  String get _greetingSubtitle {
+    final int hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return 'Start your day with focus and clear study goals.';
+    } else if (hour < 17) {
+      return 'Keep going and make the most of your study time.';
+    } else {
+      return 'Finish your day strongly and complete your goals.';
+    }
+  }
+
+  // LOGIC: Selects a greeting icon based on the current time.
+  IconData get _greetingIcon {
+    final int hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return Icons.wb_sunny_outlined;
+    } else if (hour < 17) {
+      return Icons.light_mode_outlined;
+    } else {
+      return Icons.nightlight_round;
+    }
+  }
+
+  // LOGIC: Selects greeting colours that match the app theme.
+  List<Color> get _greetingColors {
+    final int hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return [
+        Colors.indigo.shade800,
+        Colors.indigo.shade600,
+        Colors.blue.shade500,
+      ];
+    } else if (hour < 17) {
+      return [
+        Colors.indigo.shade900,
+        Colors.indigo.shade700,
+        Colors.blue.shade600,
+      ];
+    } else {
+      return [
+        Colors.deepPurple.shade900,
+        Colors.indigo.shade900,
+        Colors.blueGrey.shade700,
+      ];
+    }
+  }
+
+  // LOGIC: Formats the current time.
+  String get _formattedCurrentTime {
+    final DateTime now = DateTime.now();
+    int hour = now.hour % 12;
+
+    if (hour == 0) {
+      hour = 12;
+    }
+
+    final String minute = now.minute.toString().padLeft(2, '0');
+    final String period = now.hour >= 12 ? 'PM' : 'AM';
+
+    return '$hour:$minute $period';
+  }
+
+  // LOGIC: Selects a different tip every hour.
+  String get _currentStudyTip {
+    final int tipIndex = DateTime.now().hour % _studyTips.length;
+    return _studyTips[tipIndex];
+  }
+
+  // LOGIC: Returns the current hour label.
+  String get _currentHourLabel {
+    final DateTime now = DateTime.now();
+    int hour = now.hour % 12;
+
+    if (hour == 0) {
+      hour = 12;
+    }
+
+    final String period = now.hour >= 12 ? 'PM' : 'AM';
+
+    return '$hour:00 $period';
+  }
+
+  // LOGIC: Returns original indexes of goals matching the selected filter.
   List<int> get _visibleGoalIndexes {
     final List<int> indexes = [];
 
@@ -138,46 +314,65 @@ class _HomeScreenState extends State<HomeScreen> {
     return Icons.menu_book_outlined;
   }
 
-  // LOGIC: Changes the selected filter and rebuilds the screen.
+  // STATIC: Shows a temporary message.
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // LOGIC: Changes the selected filter.
   void _changeFilter(String filter) {
     setState(() {
       _selectedFilter = filter;
     });
   }
 
-  // LOGIC: Reverses the done status of one goal.
-  void _toggleGoal(int index) {
-    final String subject = _goals[index]['subject'] as String;
+  // LOGIC: UPDATE — changes the done value in SQLite and _goals.
+  Future<void> _toggleGoal(int index) async {
+    final Map<String, dynamic> goal = _goals[index];
+    final int id = goal['id'] as int;
+    final String subject = goal['subject'] as String;
+    final bool newStatus = !(goal['done'] as bool);
 
-    setState(() {
-      final bool currentStatus = _goals[index]['done'] as bool;
-      _goals[index]['done'] = !currentStatus;
-    });
+    try {
+      await _databaseHelper.updateGoalStatus(
+        id: id,
+        done: newStatus,
+      );
 
-    final bool isDone = _goals[index]['done'] as bool;
+      if (!mounted) {
+        return;
+      }
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      setState(() {
+        _goals[index]['done'] = newStatus;
+      });
 
-    // STATIC: Displays temporary feedback after changing a goal.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isDone
-              ? 'Great job! $subject completed.'
-              : '$subject marked as pending.',
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+      _showMessage(
+        newStatus
+            ? 'Great job! $subject completed.'
+            : '$subject marked as pending.',
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not update the goal.');
+      }
+    }
   }
 
-  // LOGIC: Opens AddGoalScreen and waits for a returned goal.
+  // LOGIC: INSERT — saves a new goal in SQLite and stores its id.
   Future<void> _openAddGoalScreen() async {
     final Map<String, dynamic>? newGoal =
         await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (context) {
+        builder: (BuildContext context) {
           return const AddGoalScreen();
         },
       ),
@@ -187,31 +382,86 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    setState(() {
-      _goals.add(newGoal);
-    });
+    try {
+      final int generatedId =
+          await _databaseHelper.insertGoal(newGoal);
 
-    final String subject = newGoal['subject'] as String;
+      if (!mounted) {
+        return;
+      }
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      final Map<String, dynamic> savedGoal = {
+        'id': generatedId,
+        'subject': newGoal['subject'],
+        'hours': newGoal['hours'],
+        'done': newGoal['done'],
+      };
 
-    // STATIC: Displays confirmation after adding a goal.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$subject was added successfully.'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+      setState(() {
+        _goals.add(savedGoal);
+        _selectedFilter = 'All';
+      });
+
+      _showMessage(
+        '${savedGoal['subject']} was added successfully.',
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not save the new goal.');
+      }
+    }
   }
 
-  // LOGIC: Asks for confirmation before deleting a goal.
+  // LOGIC: UPDATE — edits the SQLite row and _goals.
+  Future<void> _openEditGoalScreen(int index) async {
+    final Map<String, dynamic>? updatedGoal =
+        await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (BuildContext context) {
+          return AddGoalScreen(
+            initialGoal: Map<String, dynamic>.from(
+              _goals[index],
+            ),
+          );
+        },
+      ),
+    );
+
+    if (updatedGoal == null || !mounted) {
+      return;
+    }
+
+    try {
+      await _databaseHelper.updateGoal(updatedGoal);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _goals[index] = updatedGoal;
+      });
+
+      _showMessage(
+        '${updatedGoal['subject']} was updated successfully.',
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not update the goal.');
+      }
+    }
+  }
+
+  // LOGIC: DELETE — confirms and removes a goal by its database id.
   Future<void> _confirmDelete(int index) async {
-    final String subject = _goals[index]['subject'] as String;
+    final Map<String, dynamic> selectedGoal = _goals[index];
+    final String subject = selectedGoal['subject'] as String;
 
     final bool? shouldDelete = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        // STATIC: Confirmation dialog interface.
+      builder: (BuildContext dialogContext) {
+        // STATIC: Delete confirmation dialog.
         return AlertDialog(
           icon: const Icon(
             Icons.warning_amber_rounded,
@@ -224,14 +474,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             TextButton(
-              // CONNECTION POINT: UI calls logic and returns false.
               onPressed: () {
                 Navigator.pop(dialogContext, false);
               },
               child: const Text('Cancel'),
             ),
             FilledButton(
-              // CONNECTION POINT: UI calls logic and returns true.
               onPressed: () {
                 Navigator.pop(dialogContext, true);
               },
@@ -250,44 +498,75 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // LOGIC: Saves a copy so the deletion can be undone.
     final Map<String, dynamic> deletedGoal =
-        Map<String, dynamic>.from(_goals[index]);
+        Map<String, dynamic>.from(selectedGoal);
 
     final int deletedIndex = index;
+    final int id = deletedGoal['id'] as int;
 
-    // LOGIC: Removes the selected goal.
-    setState(() {
-      _goals.removeAt(index);
-    });
+    try {
+      await _databaseHelper.deleteGoal(id);
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (!mounted) {
+        return;
+      }
 
-    // STATIC: Shows an Undo action after deletion.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$subject deleted.'),
-        action: SnackBarAction(
-          label: 'UNDO',
+      setState(() {
+        _goals.removeAt(index);
+      });
 
-          // CONNECTION POINT: UI calls logic to restore the goal.
-          onPressed: () {
-            int insertIndex = deletedIndex;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
-            if (insertIndex > _goals.length) {
-              insertIndex = _goals.length;
-            }
-
-            setState(() {
-              _goals.insert(insertIndex, deletedGoal);
-            });
-          },
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$subject deleted.'),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: () {
+              _restoreDeletedGoal(
+                deletedGoal,
+                deletedIndex,
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not delete the goal.');
+      }
+    }
   }
 
-  // LOGIC: Removes all completed goals after confirmation.
+  // LOGIC: INSERT — restores one deleted row and list item.
+  Future<void> _restoreDeletedGoal(
+    Map<String, dynamic> goal,
+    int originalIndex,
+  ) async {
+    try {
+      await _databaseHelper.restoreGoal(goal);
+
+      if (!mounted) {
+        return;
+      }
+
+      int insertIndex = originalIndex;
+
+      if (insertIndex > _goals.length) {
+        insertIndex = _goals.length;
+      }
+
+      setState(() {
+        _goals.insert(insertIndex, goal);
+      });
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not restore the goal.');
+      }
+    }
+  }
+
+  // LOGIC: DELETE — removes all completed goals from SQLite and _goals.
   Future<void> _clearCompletedGoals() async {
     if (_completedGoals == 0) {
       return;
@@ -297,8 +576,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final bool? shouldClear = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        // STATIC: Clear completed goals confirmation dialog.
+      builder: (BuildContext dialogContext) {
+        // STATIC: Clear-completed confirmation dialog.
         return AlertDialog(
           icon: const Icon(
             Icons.cleaning_services,
@@ -312,14 +591,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             TextButton(
-              // CONNECTION POINT: UI closes without deleting.
               onPressed: () {
                 Navigator.pop(dialogContext, false);
               },
               child: const Text('Cancel'),
             ),
             FilledButton(
-              // CONNECTION POINT: UI confirms the operation.
               onPressed: () {
                 Navigator.pop(dialogContext, true);
               },
@@ -334,61 +611,75 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // LOGIC: Saves completed goals and their original indexes.
-    final List<MapEntry<int, Map<String, dynamic>>> removedGoals = [];
+    final List<Map<String, dynamic>> removedGoals =
+        _goals
+            .where(
+              (Map<String, dynamic> goal) {
+                return goal['done'] as bool;
+              },
+            )
+            .map(
+              (Map<String, dynamic> goal) {
+                return Map<String, dynamic>.from(goal);
+              },
+            )
+            .toList();
 
-    for (int index = 0; index < _goals.length; index++) {
-      if (_goals[index]['done'] == true) {
-        removedGoals.add(
-          MapEntry(
-            index,
-            Map<String, dynamic>.from(_goals[index]),
-          ),
+    try {
+      await _databaseHelper.deleteCompletedGoals();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _goals.removeWhere(
+          (Map<String, dynamic> goal) {
+            return goal['done'] as bool;
+          },
         );
+      });
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$completedCount completed '
+            '${completedCount == 1 ? 'goal was' : 'goals were'} removed.',
+          ),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: () {
+              _restoreCompletedGoals(removedGoals);
+            },
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not clear completed goals.');
       }
     }
+  }
 
-    // LOGIC: Removes every completed goal.
-    setState(() {
-      _goals.removeWhere(
-        (goal) {
-          return goal['done'] == true;
-        },
-      );
-    });
+  // LOGIC: INSERT — restores completed rows and reloads the list.
+  Future<void> _restoreCompletedGoals(
+    List<Map<String, dynamic>> goals,
+  ) async {
+    try {
+      await _databaseHelper.restoreGoals(goals);
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (!mounted) {
+        return;
+      }
 
-    // STATIC: Shows the result and provides Undo.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$completedCount completed '
-          '${completedCount == 1 ? 'goal was' : 'goals were'} removed.',
-        ),
-        action: SnackBarAction(
-          label: 'UNDO',
-
-          // CONNECTION POINT: UI calls logic to restore removed goals.
-          onPressed: () {
-            setState(() {
-              for (final entry in removedGoals) {
-                int insertIndex = entry.key;
-
-                if (insertIndex > _goals.length) {
-                  insertIndex = _goals.length;
-                }
-
-                _goals.insert(
-                  insertIndex,
-                  Map<String, dynamic>.from(entry.value),
-                );
-              }
-            });
-          },
-        ),
-      ),
-    );
+      await _loadGoals();
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not restore completed goals.');
+      }
+    }
   }
 
   // LOGIC: Selects an icon based on the subject name.
@@ -451,7 +742,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // LOGIC: Calculates the currently visible indexes.
     final List<int> visibleIndexes = _visibleGoalIndexes;
 
     return Scaffold(
@@ -467,15 +757,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
-
-        // CONNECTION POINT: Logic values flow into the AppBar UI.
         actions: [
           Center(
             child: Padding(
-              padding: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.only(right: 12),
               child: Text(
-                '$_completedGoals / ${_goals.length} done',
+                '$_completedGoals/${_goals.length} done',
                 style: const TextStyle(
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -484,503 +773,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
 
-      // STATIC: Main scrollable page layout.
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // STATIC: Welcome section.
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.indigo.shade800,
-                  Colors.indigo.shade500,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: Colors.white,
-                  child: Icon(
-                    Icons.school,
-                    size: 35,
-                    color: Colors.indigo,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Welcome back!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        'Stay focused and complete your study goals.',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // STATIC: Statistics section title.
-          const Text(
-            'Study Overview',
-            style: TextStyle(
-              fontSize: 21,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          // STATIC: Statistics card.
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: 20,
-                horizontal: 10,
-              ),
-
-              // CONNECTION POINT:
-              // Computed logic values flow into reusable StatItem widgets.
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  StatItem(
-                    icon: Icons.menu_book,
-                    value: '${_goals.length}',
-                    label: 'Goals',
-                  ),
-                  StatItem(
-                    icon: Icons.schedule,
-                    value: '$_totalHours',
-                    label: 'Hours',
-                  ),
-                  StatItem(
-                    icon: Icons.check_circle,
-                    value: '$_completedGoals',
-                    label: 'Done',
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          // STATIC: Progress card.
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Overall Progress',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-
-                      // CONNECTION POINT:
-                      // Calculated percentage flows from logic to UI.
-                      Text(
-                        '$_progressPercentage%',
-                        style: const TextStyle(
-                          color: Colors.indigo,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-
-                    // CONNECTION POINT:
-                    // Decimal progress flows into the progress indicator.
-                    child: LinearProgressIndicator(
-                      value: _progress,
-                      minHeight: 10,
-                      backgroundColor: Colors.indigo.shade100,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // CONNECTION POINT:
-                  // Completed and total counts flow into UI text.
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '$_completedGoals of ${_goals.length} goals completed',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // STATIC: Study tip banner.
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(17),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.deepPurple.shade700,
-                  Colors.indigo.shade500,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleAvatar(
-                  radius: 23,
-                  backgroundColor: Colors.white24,
-                  child: Icon(
-                    Icons.lightbulb_outline,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Study Tip of the Day',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Study for 25 minutes, then take a short '
-                        '5-minute break before continuing.',
-                        style: TextStyle(
-                          color: Colors.white,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 22),
-
-          // STATIC: Goal list heading and clear button.
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'My Study Goals',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-
-              // CONNECTION POINT:
-              // Button calls logic only when completed goals exist.
-              IconButton(
-                onPressed:
-                    _completedGoals > 0 ? _clearCompletedGoals : null,
-                tooltip: 'Clear Completed Goals',
-                icon: const Icon(Icons.cleaning_services),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // STATIC: Goal filter controls.
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ChoiceChip(
-                label: const Text('All'),
-
-                // CONNECTION POINT: Logic controls chip selection.
-                selected: _selectedFilter == 'All',
-
-                // CONNECTION POINT: UI calls filter logic.
-                onSelected: (_) {
-                  _changeFilter('All');
-                },
-              ),
-              ChoiceChip(
-                label: const Text('Pending'),
-
-                // CONNECTION POINT: Logic controls chip selection.
-                selected: _selectedFilter == 'Pending',
-
-                // CONNECTION POINT: UI calls filter logic.
-                onSelected: (_) {
-                  _changeFilter('Pending');
-                },
-              ),
-              ChoiceChip(
-                label: const Text('Done'),
-
-                // CONNECTION POINT: Logic controls chip selection.
-                selected: _selectedFilter == 'Done',
-
-                // CONNECTION POINT: UI calls filter logic.
-                onSelected: (_) {
-                  _changeFilter('Done');
-                },
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          // LOGIC: Conditional rendering for empty or non-empty lists.
-          if (visibleIndexes.isEmpty)
-            // STATIC: Empty-state interface.
-            Container(
-              height: 230,
-              alignment: Alignment.center,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // CONNECTION POINT:
-                  // Logic chooses which empty-state icon is displayed.
-                  Icon(
-                    _emptyIcon,
-                    size: 80,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // CONNECTION POINT:
-                  // Logic chooses which empty-state message is displayed.
-                  Text(
-                    _emptyMessage,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+      // LOGIC: Shows loading, an error, or the saved data.
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(),
             )
-          else
-            // LOGIC: Builds one goal card for every visible index.
-            ...visibleIndexes.map(
-              (originalIndex) {
-                final Map<String, dynamic> goal =
-                    _goals[originalIndex];
+          : _databaseError != null
+              ? _buildDatabaseError()
+              : _buildHomeContent(visibleIndexes),
 
-                final String subject = goal['subject'] as String;
-                final int hours = goal['hours'] as int;
-                final bool isDone = goal['done'] as bool;
-                final Color subjectColor =
-                    _getSubjectColor(subject);
-
-                // STATIC: One goal card interface.
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-
-                  // CONNECTION POINT:
-                  // Done status controls the card colour.
-                  color: isDone
-                      ? Colors.green.shade50
-                      : Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        // CONNECTION POINT:
-                        // UI button calls toggle logic.
-                        IconButton(
-                          onPressed: () {
-                            _toggleGoal(originalIndex);
-                          },
-                          tooltip: isDone
-                              ? 'Mark as pending'
-                              : 'Mark as done',
-                          icon: Icon(
-                            isDone
-                                ? Icons.check_circle
-                                : Icons.radio_button_unchecked,
-                            color: isDone
-                                ? Colors.green
-                                : Colors.indigo,
-                            size: 31,
-                          ),
-                        ),
-
-                        // STATIC: Subject icon.
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor:
-                              subjectColor.withOpacity(0.15),
-                          child: Icon(
-                            _getSubjectIcon(subject),
-                            color: subjectColor,
-                            size: 22,
-                          ),
-                        ),
-
-                        const SizedBox(width: 13),
-
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                            children: [
-                              // CONNECTION POINT:
-                              // Subject and done status flow into styled text.
-                              Text(
-                                subject,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: isDone
-                                      ? Colors.green.shade800
-                                      : Colors.black,
-
-                                  // LOGIC: Done goals receive a strikethrough.
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-
-                              // CONNECTION POINT:
-                              // Planned hours flow from logic into UI.
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.schedule,
-                                    size: 16,
-                                    color: Colors.grey,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    '$hours '
-                                    '${hours == 1 ? 'hour' : 'hours'} planned',
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // CONNECTION POINT:
-                        // Done status selects the status label.
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDone
-                                ? Colors.green.shade100
-                                : Colors.orange.shade100,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            isDone ? 'Done' : 'Pending',
-                            style: TextStyle(
-                              color: isDone
-                                  ? Colors.green.shade800
-                                  : Colors.orange.shade900,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(width: 4),
-
-                        // CONNECTION POINT:
-                        // Delete button calls confirmation logic.
-                        IconButton(
-                          onPressed: () {
-                            _confirmDelete(originalIndex);
-                          },
-                          tooltip: 'Delete Goal',
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: Colors.red,
-                            size: 28,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-
-          const SizedBox(height: 80),
-        ],
-      ),
-
-      // STATIC: Floating button used to open AddGoalScreen.
+      // STATIC: Opens the Add Goal screen.
       floatingActionButton: FloatingActionButton(
-        // CONNECTION POINT:
-        // UI button calls navigation logic.
         onPressed: _openAddGoalScreen,
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
@@ -989,10 +792,592 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // STATIC: Database error interface.
+  Widget _buildDatabaseError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.storage_outlined,
+              size: 72,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _databaseError!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadGoals,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // STATIC: Complete Home Screen content.
+  Widget _buildHomeContent(List<int> visibleIndexes) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildGreetingSection(),
+        const SizedBox(height: 22),
+
+        const Text(
+          'Study Overview',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 20,
+              horizontal: 10,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                StatItem(
+                  icon: Icons.menu_book,
+                  value: '${_goals.length}',
+                  label: 'Goals',
+                ),
+                StatItem(
+                  icon: Icons.schedule,
+                  value: '$_totalHours',
+                  label: 'Hours',
+                ),
+                StatItem(
+                  icon: Icons.check_circle,
+                  value: '$_completedGoals',
+                  label: 'Done',
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+        _buildProgressCard(),
+        const SizedBox(height: 18),
+        _buildStudyTipSection(),
+        const SizedBox(height: 24),
+
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'My Study Goals',
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed:
+                  _completedGoals > 0 ? _clearCompletedGoals : null,
+              tooltip: 'Clear Completed Goals',
+              icon: const Icon(Icons.cleaning_services),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 8),
+        _buildFilters(),
+        const SizedBox(height: 14),
+
+        if (visibleIndexes.isEmpty)
+          _buildEmptyState()
+        else
+          ...visibleIndexes.map(_buildGoalCard),
+
+        const SizedBox(height: 80),
+      ],
+    );
+  }
+
+  // STATIC: Time-based greeting section.
+  Widget _buildGreetingSection() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _greetingColors,
+        ),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: _greetingColors.first.withOpacity(0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withOpacity(0.35),
+                width: 1.5,
+              ),
+            ),
+            child: Icon(
+              _greetingIcon,
+              size: 36,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 17),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _greetingMessage,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 27,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _greetingSubtitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _formattedCurrentTime,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // STATIC: Live progress card.
+  Widget _buildProgressCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Overall Progress',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '$_progressPercentage%',
+                  style: const TextStyle(
+                    color: Colors.indigo,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: _progress,
+                minHeight: 10,
+                backgroundColor: Colors.indigo.shade100,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$_completedGoals of ${_goals.length} goals completed',
+                style: const TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // STATIC: Hourly Study Tip section.
+  Widget _buildStudyTipSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.deepPurple.shade900,
+            Colors.deepPurple.shade600,
+            Colors.indigo.shade500,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.deepPurple.withOpacity(0.24),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.16),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withOpacity(0.30),
+                width: 1.3,
+              ),
+            ),
+            child: const Icon(
+              Icons.lightbulb_outline,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Study Tip of the Hour',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _currentHourLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                Text(
+                  _currentStudyTip,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // STATIC: Goal filters.
+  Widget _buildFilters() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        ChoiceChip(
+          label: const Text('All'),
+          selected: _selectedFilter == 'All',
+          onSelected: (_) {
+            _changeFilter('All');
+          },
+        ),
+        ChoiceChip(
+          label: const Text('Pending'),
+          selected: _selectedFilter == 'Pending',
+          onSelected: (_) {
+            _changeFilter('Pending');
+          },
+        ),
+        ChoiceChip(
+          label: const Text('Done'),
+          selected: _selectedFilter == 'Done',
+          onSelected: (_) {
+            _changeFilter('Done');
+          },
+        ),
+      ],
+    );
+  }
+
+  // STATIC: Empty-state interface.
+  Widget _buildEmptyState() {
+    return Container(
+      height: 230,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _emptyIcon,
+            size: 80,
+            color: Colors.grey,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _emptyMessage,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // STATIC: Builds one goal card.
+  Widget _buildGoalCard(int originalIndex) {
+    final Map<String, dynamic> goal = _goals[originalIndex];
+
+    final String subject = goal['subject'] as String;
+    final int hours = goal['hours'] as int;
+    final bool isDone = goal['done'] as bool;
+    final Color subjectColor = _getSubjectColor(subject);
+
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: isDone ? Colors.green.shade50 : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 8,
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              onPressed: () {
+                _toggleGoal(originalIndex);
+              },
+              tooltip: isDone ? 'Mark as pending' : 'Mark as done',
+              icon: Icon(
+                isDone
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
+                color: isDone ? Colors.green : Colors.indigo,
+                size: 31,
+              ),
+            ),
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: subjectColor.withOpacity(0.15),
+              child: Icon(
+                _getSubjectIcon(subject),
+                color: subjectColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subject,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDone
+                          ? Colors.green.shade800
+                          : Colors.black,
+                      decoration: isDone
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule,
+                        size: 16,
+                        color: Colors.grey,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          '$hours ${hours == 1 ? 'hour' : 'hours'} planned',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDone
+                        ? Colors.green.shade100
+                        : Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    isDone ? 'Done' : 'Pending',
+                    style: TextStyle(
+                      color: isDone
+                          ? Colors.green.shade800
+                          : Colors.orange.shade900,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        _openEditGoalScreen(originalIndex);
+                      },
+                      tooltip: 'Edit Goal',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      icon: Icon(
+                        Icons.edit_outlined,
+                        color: Colors.indigo.shade600,
+                        size: 23,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        _confirmDelete(originalIndex);
+                      },
+                      tooltip: 'Delete Goal',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                        size: 24,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // STATIC: Reusable statistics widget.
-// It is used three times for Goals, Hours, and Done.
 class StatItem extends StatelessWidget {
   final IconData icon;
   final String value;
@@ -1033,9 +1418,14 @@ class StatItem extends StatelessWidget {
   }
 }
 
-// LOGIC: AddGoalScreen is stateful because input errors can change.
+// LOGIC: The same form adds a new goal or edits an existing goal.
 class AddGoalScreen extends StatefulWidget {
-  const AddGoalScreen({super.key});
+  final Map<String, dynamic>? initialGoal;
+
+  const AddGoalScreen({
+    super.key,
+    this.initialGoal,
+  });
 
   @override
   State<AddGoalScreen> createState() {
@@ -1044,18 +1434,36 @@ class AddGoalScreen extends StatefulWidget {
 }
 
 class _AddGoalScreenState extends State<AddGoalScreen> {
-  // LOGIC: Controllers read text from the input fields.
+  // LOGIC: Controllers read user input.
   final TextEditingController _subjectController =
       TextEditingController();
 
   final TextEditingController _hoursController =
       TextEditingController();
 
-  // LOGIC: These variables store validation error messages.
+  // LOGIC: Store validation messages.
   String? _subjectError;
   String? _hoursError;
 
-  // LOGIC: Validates input and returns a new goal.
+  // LOGIC: True when editing an existing goal.
+  bool get _isEditing {
+    return widget.initialGoal != null;
+  }
+
+  // LOGIC: Loads existing values into the form.
+  @override
+  void initState() {
+    super.initState();
+
+    final Map<String, dynamic>? goal = widget.initialGoal;
+
+    if (goal != null) {
+      _subjectController.text = goal['subject'] as String;
+      _hoursController.text = (goal['hours'] as int).toString();
+    }
+  }
+
+  // LOGIC: Validates and returns a new or updated goal.
   void _saveGoal() {
     final String subject = _subjectController.text.trim();
     final String hoursText = _hoursController.text.trim();
@@ -1064,12 +1472,10 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     String? subjectError;
     String? hoursError;
 
-    // LOGIC: Validates the subject field.
     if (subject.isEmpty) {
       subjectError = 'Please enter a subject name.';
     }
 
-    // LOGIC: Validates the hours field.
     if (hoursText.isEmpty) {
       hoursError = 'Please enter the number of hours.';
     } else if (hours == null) {
@@ -1078,30 +1484,37 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
       hoursError = 'Hours must be greater than zero.';
     }
 
-    // LOGIC: Updates validation messages on the screen.
     setState(() {
       _subjectError = subjectError;
       _hoursError = hoursError;
     });
 
-    // LOGIC: Stops saving when validation fails.
     if (subjectError != null || hoursError != null) {
       return;
     }
 
-    // LOGIC: Creates a new goal with default done status false.
-    final Map<String, dynamic> newGoal = {
-      'subject': subject,
-      'hours': hours!,
-      'done': false,
-    };
+    final Map<String, dynamic> goalToReturn;
 
-    // CONNECTION POINT:
-    // Logic sends the new goal back to HomeScreen.
-    Navigator.pop(context, newGoal);
+    if (_isEditing) {
+      // LOGIC: Copying preserves id and done.
+      goalToReturn =
+          Map<String, dynamic>.from(widget.initialGoal!);
+
+      goalToReturn['subject'] = subject;
+      goalToReturn['hours'] = hours!;
+    } else {
+      goalToReturn = {
+        'subject': subject,
+        'hours': hours!,
+        'done': false,
+      };
+    }
+
+    // CONNECTION POINT: Returns form data to HomeScreen.
+    Navigator.pop(context, goalToReturn);
   }
 
-  // LOGIC: Releases controller resources when the screen closes.
+  // LOGIC: Releases controller resources.
   @override
   void dispose() {
     _subjectController.dispose();
@@ -1114,11 +1527,11 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
 
-      // STATIC: Add Goal application bar.
+      // STATIC: Title changes for add or edit mode.
       appBar: AppBar(
-        title: const Text(
-          'Add Study Goal',
-          style: TextStyle(
+        title: Text(
+          _isEditing ? 'Edit Study Goal' : 'Add Study Goal',
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -1126,51 +1539,64 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
         foregroundColor: Colors.white,
       ),
 
-      // STATIC: Add Goal screen content.
+      // STATIC: Form content.
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
             const SizedBox(height: 10),
 
-            // STATIC: Add Goal introduction section.
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.indigo.shade800,
-                    Colors.indigo.shade500,
+                    Colors.indigo.shade900,
+                    Colors.indigo.shade600,
+                    Colors.blue.shade400,
                   ],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.withOpacity(0.25),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
-              child: const Column(
+              child: Column(
                 children: [
                   CircleAvatar(
                     radius: 34,
                     backgroundColor: Colors.white,
                     child: Icon(
-                      Icons.add_task,
-                      size: 38,
+                      _isEditing
+                          ? Icons.edit_note_rounded
+                          : Icons.add_task_rounded,
+                      size: 40,
                       color: Colors.indigo,
                     ),
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   Text(
-                    'Create a New Goal',
-                    style: TextStyle(
+                    _isEditing
+                        ? 'Update Your Goal'
+                        : 'Create a New Goal',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 23,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
-                    'Enter the subject and your planned study time.',
+                    _isEditing
+                        ? 'Change the subject name or planned study hours.'
+                        : 'Enter the subject and your planned study time.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white70,
                     ),
                   ),
@@ -1180,19 +1606,13 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
 
             const SizedBox(height: 26),
 
-            // STATIC: Subject input field.
             TextField(
-              // CONNECTION POINT:
-              // Controller transfers typed UI text into logic.
               controller: _subjectController,
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
                 labelText: 'Subject name',
                 hintText: 'Example: Mobile Programming',
                 prefixIcon: const Icon(Icons.menu_book),
-
-                // CONNECTION POINT:
-                // Logic error message flows into the input field.
                 errorText: _subjectError,
                 filled: true,
                 fillColor: Colors.white,
@@ -1213,9 +1633,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   ),
                 ),
               ),
-
-              // CONNECTION POINT:
-              // UI typing calls logic to clear an old error.
               onChanged: (_) {
                 if (_subjectError != null) {
                   setState(() {
@@ -1227,10 +1644,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
 
             const SizedBox(height: 18),
 
-            // STATIC: Hours input field.
             TextField(
-              // CONNECTION POINT:
-              // Controller transfers typed UI text into logic.
               controller: _hoursController,
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
@@ -1238,9 +1652,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                 labelText: 'Number of hours',
                 hintText: 'Example: 3',
                 prefixIcon: const Icon(Icons.schedule),
-
-                // CONNECTION POINT:
-                // Logic error message flows into the input field.
                 errorText: _hoursError,
                 filled: true,
                 fillColor: Colors.white,
@@ -1261,9 +1672,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   ),
                 ),
               ),
-
-              // CONNECTION POINT:
-              // UI typing calls logic to clear an old error.
               onChanged: (_) {
                 if (_hoursError != null) {
                   setState(() {
@@ -1271,9 +1679,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   });
                 }
               },
-
-              // CONNECTION POINT:
-              // Keyboard submit action calls save logic.
               onSubmitted: (_) {
                 _saveGoal();
               },
@@ -1281,27 +1686,34 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
 
             const SizedBox(height: 28),
 
-            // STATIC: Styled Save button.
             SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 58,
               child: FilledButton.icon(
-                // CONNECTION POINT:
-                // UI button calls validation and save logic.
                 onPressed: _saveGoal,
-                icon: const Icon(Icons.save),
-                label: const Text(
-                  'Save Goal',
-                  style: TextStyle(
-                    fontSize: 16,
+                icon: Icon(
+                  _isEditing
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.add_task_rounded,
+                  size: 25,
+                ),
+                label: Text(
+                  _isEditing
+                      ? 'Update Study Goal'
+                      : 'Create Study Goal',
+                  style: const TextStyle(
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
                   ),
                 ),
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.indigo,
+                  backgroundColor: Colors.indigo.shade700,
                   foregroundColor: Colors.white,
+                  elevation: 5,
+                  shadowColor: Colors.indigo.withOpacity(0.35),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                 ),
               ),
@@ -1309,10 +1721,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
 
             const SizedBox(height: 12),
 
-            // STATIC: Cancel button.
             TextButton(
-              // CONNECTION POINT:
-              // UI button closes the screen without returning data.
               onPressed: () {
                 Navigator.pop(context);
               },
